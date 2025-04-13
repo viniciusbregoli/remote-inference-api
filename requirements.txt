@@ -2,4 +2,9 @@ flask
 ultralytics
 pillow
 numpy
-base64
+flask-sqlalchemy
+psycopg2-binary
+flask-migrate
+python-dotenv
+pyjwt
+bcrypt

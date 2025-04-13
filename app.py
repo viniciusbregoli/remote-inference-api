@@ -2,9 +2,7 @@ import os
 from flask import Flask, request, jsonify, send_file
 from ultralytics import YOLO
 from PIL import Image, ImageDraw
-import numpy as np
 import io
-import base64
 
 app = Flask(__name__)
 
@@ -39,7 +37,7 @@ def load_model():
     global model
 
     data = request.get_json()
-    model_name = data.get("model_name", "yolov8n.pt")
+    model_name = data.get("model_name", "yolov11n.pt")
 
     try:
         model = YOLO(model_name)
