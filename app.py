@@ -37,7 +37,7 @@ def load_model():
     global model
 
     data = request.get_json()
-    model_name = data.get("model_name", "yolov11n.pt")
+    model_name = data.get("model_name", "yolov8n.pt")
 
     try:
         model = YOLO(model_name)
