@@ -1,44 +1,39 @@
-# Remote Inference API
+# YOLO Object Detection API
+
+A FastAPI-based REST API for object detection using YOLOv8 models.
+
+## Features
+
+- Object detection using YOLOv8 models
+- Support for different YOLOv8 model sizes (n, s, m, l, x)
+- Automatic API documentation
+- Health check endpoint
+- Image annotation with bounding boxes and labels
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-
-# On Linux/MacOS:
-source venv/bin/activate
-# On Windows:
-.\venv\Scripts\activate
-```
-
-3. Install the required dependencies:
+1. Clone the repository
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-1. Start the Flask server:
+1. Start the server:
 ```bash
-python app.py
+uvicorn app:app --host 0.0.0.0 --port 5000 --reload
 ```
 
-The server will start on port 5000 by default, or you can specify a different port using the `PORT` environment variable.
+2. Access the API documentation at `http://localhost:5000/docs`
 
-### API Endpoints
+## API Endpoints
 
-#### Health Check
+### Health Check
 - **GET** `/health`
 - Returns the health status of the API
 
-#### Load Model
+### Load Model
 - **POST** `/load_model`
 - Request body:
 ```json
@@ -46,30 +41,32 @@ The server will start on port 5000 by default, or you can specify a different po
     "model_name": "yolov8n.pt"
 }
 ```
-- Loads a YOLO model for object detection
+- Loads a YOLOv8 model for object detection
 
-#### Detect Objects
+### Detect Objects
 - **POST** `/detect`
-- Accepts an image file in the request
+- Upload an image file
 - Returns an annotated image with detected objects
-- Form data key: `image`
 
 ## Example Usage
 
 1. Load a model:
 ```bash
-curl -X POST http://localhost:5000/load_model \
+curl -X POST "http://localhost:5000/load_model" \
      -H "Content-Type: application/json" \
      -d '{"model_name": "yolov8n.pt"}'
 ```
 
 2. Detect objects in an image:
 ```bash
-curl -X POST http://localhost:5000/detect \
+curl -X POST "http://localhost:5000/detect" \
      -F "image=@path/to/your/image.jpg"
 ```
 
-## Response Format
+## Environment Variables
 
-The `/detect` endpoint returns an annotated JPEG image with bounding boxes and labels for detected objects.
-![example](./assets/image.png)
+- `PORT`: Server port (default: 5000)
+
+## License
+
+MIT
