@@ -1,44 +1,65 @@
 import os
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from ultralytics import YOLO
 from PIL import Image, ImageDraw, ImageFont
 import io
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="YOLO Object Detection API")
 
-# Load YOLO model
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load the model when the application starts"""
+    global model
+    try:
+        print(f"Loading {DEFAULT_MODEL} on startup...")
+        model = YOLO(DEFAULT_MODEL)
+        print(f"Model {DEFAULT_MODEL} loaded successfully!")
+    except Exception as e:
+        print(f"ERROR loading model on startup: {str(e)}")
+    yield
+
+
+app = FastAPI(title="YOLO Object Detection API", lifespan=lifespan)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Define model name
+DEFAULT_MODEL = "yolov8n.pt"
+
+# Load YOLO model on startup
 model = None
 
 
 class Detection(BaseModel):
-    box: List[float]
-    confidence: float
-    class_name: str
+    box: List[float]  # [x1, y1, x2, y2]
+    confidence: float  # 0-1
+    class_name: str  # "person", "car", "dog", etc.
 
 
 class ModelLoadRequest(BaseModel):
-    model_name: str = "yolov8n.pt"
+    model_name: str = DEFAULT_MODEL
 
 
 def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
     draw = ImageDraw.Draw(image)
 
-    # Try to load a smaller font size
-    try:
-        # Calculate font size based on image dimensions - reduced further
-        font_size = 30
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
-        # If Arial is not available, try to find any available font
-        try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
-            )
-        except:
-            font = ImageFont.load_default()
+    # Try to load a font, with fallbacks
+    font_size = 30
+
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+    )
 
     for detection in detections:
         box = detection.box
@@ -51,7 +72,6 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
         # Draw label with smaller text and background
         label = f"{class_name} {confidence:.2f}"
 
-        # Get text size using the correct method
         left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
         text_width = right - left
         text_height = bottom - top
@@ -81,11 +101,18 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Check if the API is healthy and if the model is loaded"""
+    global model
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "model_name": DEFAULT_MODEL if model is not None else None,
+    }
 
 
 @app.post("/load_model")
 async def load_model(request: ModelLoadRequest):
+    """Explicitly load or reload a model"""
     global model
 
     try:
@@ -100,16 +127,13 @@ async def load_model(request: ModelLoadRequest):
 
 @app.post("/detect")
 async def detect_objects(image: UploadFile = File(...)):
+    """Detect objects in the uploaded image"""
     global model
-
-    if model is None:
-        raise HTTPException(
-            status_code=400, detail="No model loaded. Call /load_model first"
-        )
 
     try:
         # Get image from request
-        img = Image.open(io.BytesIO(await image.read()))
+        img_data = await image.read()
+        img = Image.open(io.BytesIO(img_data))
 
         # Run inference
         results = model(img)
@@ -149,7 +173,9 @@ async def detect_objects(image: UploadFile = File(...)):
         os.remove(temp_path)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"Error processing image: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 if __name__ == "__main__":
