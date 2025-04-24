@@ -11,7 +11,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files?.[0]; // Get the file from the input
     if (file) {
       setSelectedImage(file);
       setResultImage(null); // Clear previous results
@@ -42,7 +42,6 @@ export default function Home() {
       });
 
       if (response.ok) {
-        // The API returns an image, not JSON
         const blob = await response.blob();
         const imageUrl = URL.createObjectURL(blob);
         setResultImage(imageUrl);

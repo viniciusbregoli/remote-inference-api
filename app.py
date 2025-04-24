@@ -164,7 +164,7 @@ async def detect_objects(image: UploadFile = File(...)):
         with open(temp_path, "wb") as f:
             f.write(img_byte_arr.getvalue())
 
-        # Return the image
+        # Return the image as a file response ( in the format of a blob )
         return FileResponse(
             temp_path, media_type="image/jpeg", filename="annotated_image.jpg"
         )
