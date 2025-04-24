@@ -145,6 +145,9 @@ async def detect_objects(image: UploadFile = File(...)):
             temp_path, media_type="image/jpeg", filename="annotated_image.jpg"
         )
 
+        # Delete the temporary file
+        os.remove(temp_path)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
