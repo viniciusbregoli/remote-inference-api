@@ -1,16 +1,16 @@
 import os
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from ultralytics import YOLO
 from PIL import Image, ImageDraw, ImageFont
 import io
 from contextlib import asynccontextmanager
 
 
-@asynccontextmanager
+@asynccontextmanager # this is a context manager that will load the model when the application starts
 async def lifespan(app: FastAPI):
     """Load the model when the application starts"""
     global model
@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="YOLO Object Detection API", lifespan=lifespan)
 
-# CORS middleware
+# CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -132,11 +132,11 @@ async def detect_objects(image: UploadFile = File(...)):
 
     try:
         # Get image from request
-        img_data = await image.read()
-        img = Image.open(io.BytesIO(img_data))
+        img_data = await image.read() # read the image from the request as bytes
+        img = Image.open(io.BytesIO(img_data)) # open the image as a PIL image
 
         # Run inference
-        results = model(img)
+        results = model(img) # predicts with PIL image
 
         # Process results
         result_data = []
