@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 
-from src.database import get_db, APIKey, User
-from src.schemas import APIKeyCreate, APIKey as APIKeySchema
+from src.database import get_db, APIKey as APIKeyModel, User
+from src.schemas import APIKeyCreate, APIKey
 from src.auth import get_current_user, get_current_active_admin, generate_api_key
 
 router = APIRouter(
@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=APIKeySchema)
+@router.post("/", response_model=APIKey)
 def create_api_key(
     api_key: APIKeyCreate,
     db: Session = Depends(get_db),
@@ -44,7 +44,7 @@ def create_api_key(
         expires_at = api_key.expires_at
 
     # Create new API key in database
-    db_api_key = APIKey(
+    db_api_key = APIKeyModel(
         user_id=api_key.user_id, key=key, name=api_key.name, expires_at=expires_at
     )
 
@@ -55,7 +55,7 @@ def create_api_key(
     return db_api_key
 
 
-@router.get("/", response_model=List[APIKeySchema])
+@router.get("/", response_model=List[APIKey])
 def read_api_keys(
     skip: int = 0,
     limit: int = 100,
@@ -63,11 +63,11 @@ def read_api_keys(
     current_user: User = Depends(get_current_active_admin),
 ):
     """Get all API keys (admin only)"""
-    api_keys = db.query(APIKey).offset(skip).limit(limit).all()
+    api_keys = db.query(APIKeyModel).offset(skip).limit(limit).all()
     return api_keys
 
 
-@router.get("/user/{user_id}", response_model=List[APIKeySchema])
+@router.get("/user/{user_id}", response_model=List[APIKey])
 def read_user_api_keys(
     user_id: int,
     db: Session = Depends(get_db),
@@ -92,20 +92,22 @@ def read_user_api_keys(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    api_keys = db.query(APIKey).filter(APIKey.user_id == user_id).all()
+    api_keys = db.query(APIKeyModel).filter(APIKeyModel.user_id == user_id).all()
     return api_keys
 
 
-@router.get("/me", response_model=List[APIKeySchema])
+@router.get("/me", response_model=List[APIKey])
 def read_my_api_keys(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """Get all API keys for the current user"""
-    api_keys = db.query(APIKey).filter(APIKey.user_id == current_user.id).all()
+    api_keys = (
+        db.query(APIKeyModel).filter(APIKeyModel.user_id == current_user.id).all()
+    )
     return api_keys
 
 
-@router.get("/{api_key_id}", response_model=APIKeySchema)
+@router.get("/{api_key_id}", response_model=APIKey)
 def read_api_key(
     api_key_id: int,
     db: Session = Depends(get_db),
@@ -118,7 +120,7 @@ def read_api_key(
     - Regular users can only view their own keys
     """
     # Get the API key
-    db_api_key = db.query(APIKey).filter(APIKey.id == api_key_id).first()
+    db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
@@ -147,7 +149,7 @@ def delete_api_key(
     - Regular users can only delete their own keys
     """
     # Get the API key
-    db_api_key = db.query(APIKey).filter(APIKey.id == api_key_id).first()
+    db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
@@ -167,7 +169,7 @@ def delete_api_key(
     return None
 
 
-@router.put("/{api_key_id}/deactivate", response_model=APIKeySchema)
+@router.put("/{api_key_id}/deactivate", response_model=APIKey)
 def deactivate_api_key(
     api_key_id: int,
     db: Session = Depends(get_db),
@@ -180,7 +182,7 @@ def deactivate_api_key(
     - Regular users can only deactivate their own keys
     """
     # Get the API key
-    db_api_key = db.query(APIKey).filter(APIKey.id == api_key_id).first()
+    db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
@@ -201,7 +203,7 @@ def deactivate_api_key(
     return db_api_key
 
 
-@router.put("/{api_key_id}/activate", response_model=APIKeySchema)
+@router.put("/{api_key_id}/activate", response_model=APIKey)
 def activate_api_key(
     api_key_id: int,
     db: Session = Depends(get_db),
@@ -214,7 +216,7 @@ def activate_api_key(
     - Regular users can only activate their own keys
     """
     # Get the API key
-    db_api_key = db.query(APIKey).filter(APIKey.id == api_key_id).first()
+    db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(

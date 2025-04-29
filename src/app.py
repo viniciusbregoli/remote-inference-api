@@ -19,26 +19,22 @@ from datetime import timedelta
 from typing import List
 
 from routes.apikeys import router as apikeys_router
+from routes.users import router as users_router
 from src.database import get_db, create_tables, init_db, User, Model, UsageLog
 from src.schemas import (
-    UserCreate,
-    User as UserSchema,
-    Token,
     ModelCreate,
     Model as ModelSchema,
     Detection,
-    UserStats,
+    Token,
 )
 from src.auth import (
-    get_password_hash,
     authenticate_user,
     create_access_token,
-    get_current_user,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
     get_current_active_admin,
     verify_api_key,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from src.rate_limit import check_rate_limits_with_api_key, log_api_usage, get_user_stats
+from src.rate_limit import check_rate_limits_with_api_key, log_api_usage
 
 # Import YOLO model
 from ultralytics import YOLO
@@ -83,6 +79,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(apikeys_router)
+app.include_router(users_router)
 # CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
@@ -194,7 +191,7 @@ async def health_check(db: Session = Depends(get_db)):
     }
 
 
-@app.post("/token", response_model=Token)
+@app.post("/token", response_model=Token, tags=["authentication"])
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
@@ -214,52 +211,6 @@ async def login_for_access_token(
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
-
-
-@app.post("/users/", response_model=UserSchema)
-async def create_user(
-    user: UserCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_admin),  # ensures the user is an admin
-):
-    """Create a new user (admin only)"""
-    # Check if user with this username or email already exists
-    existing_user = (
-        db.query(User)
-        .filter((User.username == user.username) | (User.email == user.email))
-        .first()
-    )
-
-    if existing_user:
-        raise HTTPException(
-            status_code=400, detail="Username or email already registered"
-        )
-
-    # Create new user
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        username=user.username, email=user.email, password_hash=hashed_password
-    )
-
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-
-    return db_user
-
-
-@app.get("/users/me", response_model=UserSchema)
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    """Get current user information"""
-    return current_user
-
-
-@app.get("/users/me/stats", response_model=UserStats)
-async def read_user_stats(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    """Get current user API usage statistics"""
-    return get_user_stats(current_user.id, db)
 
 
 @app.post("/models/", response_model=ModelSchema)
