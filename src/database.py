@@ -130,8 +130,8 @@ def create_tables():
 def init_db():
     db = SessionLocal()
 
-    # Create default admin user if it doesn't exist
-    admin_exists = db.query(User).filter(User.username == "admin").first()
+    # Check if admin user exists before trying to create it
+    admin_exists = db.query(User).filter(User.email == "vinibregoli@gmail.com").first()
     if not admin_exists:
         from passlib.context import CryptContext
 
@@ -140,14 +140,12 @@ def init_db():
         admin_user = User(
             username="bregoli",
             email="vinibregoli@gmail.com",
-            password_hash=pwd_context.hash(
-                "admin"
-            ),  # Change this in production!
+            password_hash=pwd_context.hash("admin"),
             is_admin=True,
         )
         db.add(admin_user)
 
-        # Add default YOLOv8 model
+        # Check if default YOLOv8 model exists
         model_exists = db.query(Model).filter(Model.name == "yolov8n").first()
         if not model_exists:
             yolo_model = Model(
