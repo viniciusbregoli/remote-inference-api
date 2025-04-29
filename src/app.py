@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import List
 
+from routes.apikeys import router as apikeys_router
 from src.database import get_db, create_tables, init_db, User, Model, UsageLog
 from src.schemas import (
     UserCreate,
@@ -81,7 +82,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
+app.include_router(apikeys_router)
 # CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
