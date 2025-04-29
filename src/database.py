@@ -12,7 +12,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.sql import func
-from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
@@ -20,9 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://yolo_user:your_secure_password@localhost/yolo_api"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Create SQLAlchemy engine
 engine = create_engine(DATABASE_URL)
@@ -141,22 +138,24 @@ def init_db():
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
         admin_user = User(
-            username="admin",
-            email="admin@example.com",
+            username="bregoli",
+            email="vinibregoli@gmail.com",
             password_hash=pwd_context.hash(
-                "admin_password"
+                "admin"
             ),  # Change this in production!
             is_admin=True,
         )
         db.add(admin_user)
 
         # Add default YOLOv8 model
-        yolo_model = Model(
-            name="yolov8n",
-            file_path="yolov8n.pt",
-            description="YOLOv8 Nano - the smallest and fastest model variant, designed for resource-constrained environments.",
-        )
-        db.add(yolo_model)
+        model_exists = db.query(Model).filter(Model.name == "yolov8n").first()
+        if not model_exists:
+            yolo_model = Model(
+                name="yolov8n",
+                file_path="yolov8n.pt",
+                description="YOLOv8 Nano - the smallest and fastest model variant, designed for resource-constrained environments.",
+            )
+            db.add(yolo_model)
 
         db.commit()
 

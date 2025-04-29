@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 import secrets
 import string
 
-from database import get_db, User, APIKey
-from schemas import TokenData
+from src.database import get_db, User, APIKey
+from src.schemas import TokenData
 
 # Security configuration
 SECRET_KEY = "YOUR_SECRET_KEY"  # Change this in production!
@@ -17,13 +17,13 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # password hashing
 
 # OAuth2 configuration
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")  # endpoint for token
 
 # API Key header configuration
-api_key_header = APIKeyHeader(name="X-API-Key")
+api_key_header = APIKeyHeader(name="X-API-Key")  # header for API key
 
 
 # Password utilities
@@ -39,9 +39,9 @@ def get_password_hash(password):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -98,6 +98,7 @@ def verify_api_key(
         db.query(APIKey).filter(APIKey.key == api_key, APIKey.is_active == True).first()
     )
 
+    # Check if the API key exists
     if not db_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -106,7 +107,7 @@ def verify_api_key(
         )
 
     # Check if the API key has expired
-    if db_api_key.expires_at and db_api_key.expires_at < datetime.utcnow():
+    if db_api_key.expires_at and db_api_key.expires_at < datetime.now(UTC):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key has expired",
@@ -131,6 +132,6 @@ def verify_api_key(
 
 
 # Generate a random API key
-def generate_api_key(length=32):
+def generate_api_key(length=32) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))

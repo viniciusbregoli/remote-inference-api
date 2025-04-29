@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException, Depends, status
 
-from database import get_db, User, RateLimit, UsageLog
-from auth import verify_api_key
+from src.database import get_db, User, RateLimit, UsageLog
+from src.auth import verify_api_key
 
 
 # Check if a user has exceeded their rate limits

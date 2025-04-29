@@ -15,11 +15,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import io
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import timedelta
+from typing import List
 
-from database import get_db, create_tables, init_db, User, Model, UsageLog
-from schemas import (
+from src.database import get_db, create_tables, init_db, User, Model, UsageLog
+from src.schemas import (
     UserCreate,
     User as UserSchema,
     Token,
@@ -28,7 +28,7 @@ from schemas import (
     Detection,
     UserStats,
 )
-from auth import (
+from src.auth import (
     get_password_hash,
     authenticate_user,
     create_access_token,
@@ -37,7 +37,7 @@ from auth import (
     verify_api_key,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from rate_limit import check_rate_limits_with_api_key, log_api_usage, get_user_stats
+from src.rate_limit import check_rate_limits_with_api_key, log_api_usage, get_user_stats
 
 # Import YOLO model
 from ultralytics import YOLO
@@ -219,7 +219,7 @@ async def login_for_access_token(
 async def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_admin),
+    current_user: User = Depends(get_current_active_admin),  # ensures the user is an admin
 ):
     """Create a new user (admin only)"""
     # Check if user with this username or email already exists
