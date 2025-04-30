@@ -54,14 +54,14 @@ class APIKeyUpdate(BaseModel):
 
 class APIKeyInDB(APIKeyBase):
     id: int
-    user_id: int
+    user_id: Optional[int] = None  # Changed to allow None values
     key: str
     is_active: bool
     created_at: datetime
     expires_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class APIKey(APIKeyInDB):
@@ -92,7 +92,7 @@ class ModelInDB(ModelBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class Model(ModelInDB):
@@ -123,7 +123,7 @@ class UsageLogInDB(UsageLogBase):
     timestamp: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UsageLog(UsageLogInDB):
@@ -152,7 +152,7 @@ class RateLimitInDB(RateLimitBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class RateLimit(RateLimitInDB):
