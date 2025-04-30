@@ -75,7 +75,15 @@ def read_api_keys(
     current_user: User = Depends(get_current_active_admin),
 ):
     """Get all API keys (admin only)"""
+    # Modified to include user information
     api_keys = db.query(APIKeyModel).offset(skip).limit(limit).all()
+
+    # Add user information
+    for key in api_keys:
+        user = db.query(User).filter(User.id == key.user_id).first()
+        if user:
+            key.user_username = user.username
+    
     return api_keys
 
 

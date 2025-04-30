@@ -54,7 +54,8 @@ class APIKeyUpdate(BaseModel):
 
 class APIKeyInDB(APIKeyBase):
     id: int
-    user_id: Optional[int] = None  # Changed to allow None values
+    user_id: Optional[int] = None
+    user_username: Optional[str] = None
     key: str
     is_active: bool
     created_at: datetime

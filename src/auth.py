@@ -107,7 +107,7 @@ def verify_api_key(
         )
 
     # Check if the API key has expired
-    if db_api_key.expires_at and db_api_key.expires_at < datetime.now(UTC):
+    if db_api_key.expires_at and db_api_key.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API key has expired",
