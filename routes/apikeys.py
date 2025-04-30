@@ -18,15 +18,27 @@ router = APIRouter(
 def create_api_key(
     api_key: APIKeyCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_admin),
+    current_user: User = Depends(
+        get_current_user
+    ),  # Changed from get_current_active_admin
 ):
     """
-    Create a new API key (admin only)
+    Create a new API key
+
+    - Regular users can only create keys for themselves
+    - Admin users can create keys for any user
 
     - **name**: A descriptive name for the API key
     - **user_id**: ID of the user who owns this key
     - **expires_at**: Optional expiration date for the key
     """
+    # Check if the user is authorized to create keys for this user_id
+    if not current_user.is_admin and current_user.id != api_key.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create API keys for yourself unless you're an admin",
+        )
+
     # Check if the user exists
     user = db.query(User).filter(User.id == api_key.user_id).first()
     if not user:

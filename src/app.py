@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 import io
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from jose import JWTError, jwt
 
 from routes.apikeys import router as apikeys_router
 from routes.users import router as users_router
@@ -32,6 +33,9 @@ from src.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     get_current_active_admin,
     verify_api_key,
+    get_current_user,
+    SECRET_KEY,
+    ALGORITHM,
 )
 from src.rate_limit import check_rate_limits_with_api_key, log_api_usage
 from src.utils import draw_boxes, get_image_size
@@ -255,19 +259,65 @@ async def detect_objects(
     request: Request = None,
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
-    api_key_data=Depends(verify_api_key),
 ):
-    """Detect objects in the uploaded image"""
+    """
+    Detect objects in the uploaded image.
+    Authentication can be done either via JWT token or API key.
+    """
     global MODEL
+
+    # Get user either from JWT token or API key
+    user_id = None
+    model_id = None
+    api_key_data = None
+
+    # Try to get API key authentication first
+    try:
+        api_key = request.headers.get("x-api-key")
+        if api_key:
+            api_key_data = verify_api_key(api_key, db)
+            user_id = api_key_data["user"].id
+
+            # Check rate limits for API key users
+            check_rate_limits_with_api_key(api_key_data, db)
+    except HTTPException:
+        # If API key auth fails, try JWT token auth
+        pass
+
+    # If no API key or API key auth failed, try JWT token
+    if not user_id:
+        try:
+            auth_header = request.headers.get("authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.replace("Bearer ", "")
+
+                # Verify the JWT token
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                username: str = payload.get("sub")
+
+                if username:
+                    # Get the user from the database
+                    current_user = (
+                        db.query(User).filter(User.username == username).first()
+                    )
+                    if current_user and current_user.is_active:
+                        user_id = current_user.id
+        except Exception as e:
+            print(f"JWT verification error: {e}")
+
+    # If no authentication succeeded, return 401
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please provide a valid API key or JWT token.",
+            headers={"WWW-Authenticate": "Bearer or APIKey"},
+        )
 
     # Check if model is loaded
     if MODEL is None:
         raise HTTPException(
             status_code=500, detail="No model loaded. Please load a model first."
         )
-
-    # Check rate limits
-    check_rate_limits_with_api_key(api_key_data, db)
 
     start_time = time.time()
     request_size = get_image_size(image)
@@ -281,6 +331,8 @@ async def detect_objects(
         current_model = (
             db.query(Model).filter(Model.file_path == MODEL.ckpt_path).first()
         )
+        if current_model:
+            model_id = current_model.id
 
         # Run inference
         results = MODEL(img)
@@ -318,13 +370,13 @@ async def detect_objects(
         if background_tasks:
             background_tasks.add_task(
                 log_api_usage,
-                user_id=api_key_data["user"].id,
-                api_key_id=api_key_data["api_key"].id,
+                user_id=user_id,
+                api_key_id=api_key_data["api_key"].id if api_key_data else None,
                 endpoint="/detect",
                 request_size=request_size,
                 processing_time=processing_time,
                 status_code=200,
-                model_id=current_model.id if current_model else None,
+                model_id=model_id,
                 request_ip=request.client.host if request else None,
                 user_agent=request.headers.get("user-agent") if request else None,
                 db=db,
@@ -343,8 +395,8 @@ async def detect_objects(
         if background_tasks:
             background_tasks.add_task(
                 log_api_usage,
-                user_id=api_key_data["user"].id,
-                api_key_id=api_key_data["api_key"].id,
+                user_id=user_id,
+                api_key_id=api_key_data["api_key"].id if api_key_data else None,
                 endpoint="/detect",
                 request_size=request_size,
                 processing_time=processing_time,
