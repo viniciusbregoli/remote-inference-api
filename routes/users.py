@@ -4,11 +4,7 @@ from typing import List
 
 from src.database import get_db, User
 from src.schemas import UserCreate, User as UserSchema, UserStats, UserUpdate
-from src.auth import (
-    get_current_user,
-    get_current_active_admin,
-    get_password_hash,
-)
+from src.auth import get_current_user, get_current_active_admin, get_password_hash
 from src.rate_limit import get_user_stats
 
 router = APIRouter(
@@ -16,16 +12,6 @@ router = APIRouter(
     tags=["users"],
 )
 
-@router.get("/", response_model=List[UserSchema])
-async def read_users(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_admin),
-):
-    """Get all users (admin only)"""
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
 
 @router.post("/", response_model=UserSchema)
 async def create_user(
@@ -59,6 +45,18 @@ async def create_user(
     db.refresh(db_user)
 
     return db_user
+
+
+@router.get("/", response_model=List[UserSchema])
+async def read_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_admin),
+):
+    """Get all users (admin only)"""
+    users = db.query(User).offset(skip).limit(limit).all()
+    return users
 
 
 @router.put("/{user_id}", response_model=UserSchema)
@@ -137,9 +135,8 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/me/stats", response_model=UserStats)
-async def read_user_stats_endpoint(  # Renamed to avoid conflict with imported function
+async def read_user_stats_endpoint(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Get current user API usage statistics"""
     return get_user_stats(current_user.id, db)
-

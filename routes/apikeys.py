@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from src.database import get_db, APIKey as APIKeyModel, User
 from src.schemas import APIKeyCreate, APIKey
@@ -13,34 +13,33 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 @router.post("/", response_model=APIKey)
 def create_api_key(
     api_key: APIKeyCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
         get_current_user
-    ),  # Changed from get_current_active_admin
+    ),  # User does not need to be admin, but must be the owner of the API key
 ):
-    # Check if the user is authorized to create keys for this user_id
-    if not current_user.is_admin and current_user.id != api_key.user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only create API keys for yourself unless you're an admin",
-        )
-
     # Check if the user exists
     user = db.query(User).filter(User.id == api_key.user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
-
+    # Check if the user is authorized to create keys for this user_id
+    if not current_user.is_admin and current_user.id != api_key.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create API keys for yourself unless you're an admin",
+        )
     # Generate a new API key
     key = generate_api_key()
 
     # Set default expiration date to 1 year from now if not provided
     if not api_key.expires_at:
-        expires_at = datetime.utcnow() + timedelta(days=365)
+        expires_at = datetime.now(UTC) + timedelta(days=365)
     else:
         expires_at = api_key.expires_at
 
@@ -58,14 +57,12 @@ def create_api_key(
 
 @router.get("/", response_model=List[APIKey])
 def read_api_keys(
-    skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_admin),
 ):
-    """Get all API keys (admin only)"""
     # Modified to include user information
-    api_keys = db.query(APIKeyModel).offset(skip).limit(limit).all()
+    api_keys = db.query(APIKeyModel).limit(limit).all()
 
     # Add user information
     for key in api_keys:
@@ -82,12 +79,6 @@ def read_user_api_keys(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get all API keys for a specific user
-
-    - Admin users can view keys for any user
-    - Regular users can only view their own keys
-    """
     # Check if current user is admin or the user being requested
     if not current_user.is_admin and current_user.id != user_id:
         raise HTTPException(
@@ -109,7 +100,6 @@ def read_user_api_keys(
 def read_my_api_keys(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    """Get all API keys for the current user"""
     api_keys = (
         db.query(APIKeyModel).filter(APIKeyModel.user_id == current_user.id).all()
     )
@@ -122,24 +112,18 @@ def read_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get a specific API key by ID
+    # Check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+        )
 
-    - Admin users can view any key
-    - Regular users can only view their own keys
-    """
     # Get the API key
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
-        )
-
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
         )
 
     return db_api_key
@@ -151,24 +135,17 @@ def delete_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Delete an API key
-
-    - Admin users can delete any key
-    - Regular users can only delete their own keys
-    """
+    # Check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+        )
     # Get the API key
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
-        )
-
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
         )
 
     # Delete the API key
@@ -184,12 +161,11 @@ def deactivate_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Deactivate an API key
-
-    - Admin users can deactivate any key
-    - Regular users can only deactivate their own keys
-    """
+    # Check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+        )
     # Get the API key
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
@@ -197,13 +173,6 @@ def deactivate_api_key(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
         )
-
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
-        )
-
     # Deactivate the API key
     db_api_key.is_active = False
     db.commit()
@@ -218,13 +187,12 @@ def activate_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Activate an API key
+    # Check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+        )
 
-    - Admin users can activate any key
-    - Regular users can only activate their own keys
-    """
-    # Get the API key
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
@@ -232,14 +200,10 @@ def activate_api_key(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
         )
 
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
-        )
-
-    # Check if the key has expired
-    if db_api_key.expires_at and db_api_key.expires_at < datetime.utcnow():
+    # Compare expires_at with an offset-aware datetime
+    if db_api_key.expires_at and db_api_key.expires_at.replace(
+        tzinfo=UTC
+    ) < datetime.now(UTC):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="API key has expired and cannot be activated",
