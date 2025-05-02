@@ -143,83 +143,6 @@ async def create_model(
     return db_model
 
 
-@app.post("/load_model")
-async def load_model(
-    model_name: str, db: Session = Depends(get_db), api_key_data=Depends(verify_api_key)
-):
-    """Load a specific model for object detection"""
-    global MODEL
-
-    # Check rate limits
-    check_rate_limits_with_api_key(api_key_data, db)
-
-    start_time = time.time()
-
-    # Get the model from database
-    db_model = (
-        db.query(Model)
-        .filter(Model.name == model_name, Model.is_active == True)
-        .first()
-    )
-
-    if not db_model:
-        end_time = time.time()
-        processing_time = end_time - start_time
-
-        # Log the failed request
-        log_api_usage(
-            user_id=api_key_data["user"].id,
-            api_key_id=api_key_data["api_key"].id,
-            endpoint="/load_model",
-            request_size=len(model_name),
-            processing_time=processing_time,
-            status_code=404,
-            db=db,
-        )
-
-        raise HTTPException(status_code=404, detail="Model not found or not active")
-
-    try:
-        MODEL = YOLO(db_model.file_path)
-
-        end_time = time.time()
-        processing_time = end_time - start_time
-
-        # Log the successful request
-        log_api_usage(
-            user_id=api_key_data["user"].id,
-            api_key_id=api_key_data["api_key"].id,
-            endpoint="/load_model",
-            request_size=len(model_name),
-            processing_time=processing_time,
-            status_code=200,
-            model_id=db_model.id,
-            db=db,
-        )
-
-        return {
-            "status": "success",
-            "message": f"Model {model_name} loaded successfully",
-            "processing_time": processing_time,
-        }
-    except Exception as e:
-        end_time = time.time()
-        processing_time = end_time - start_time
-
-        # Log the failed request
-        log_api_usage(
-            user_id=api_key_data["user"].id,
-            api_key_id=api_key_data["api_key"].id,
-            endpoint="/load_model",
-            request_size=len(model_name),
-            processing_time=processing_time,
-            status_code=500,
-            model_id=db_model.id,
-            db=db,
-        )
-
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/detect")
 async def detect_objects(
@@ -228,10 +151,6 @@ async def detect_objects(
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
-    """
-    Detect objects in the uploaded image.
-    Authentication can be done either via JWT token or API key.
-    """
     global MODEL
 
     # Get user either from JWT token or API key
