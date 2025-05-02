@@ -94,38 +94,6 @@ app.add_middleware(
 )
 
 
-# API Endpoints
-@app.get("/health")
-async def health_check(db: Session = Depends(get_db)):
-    """Check if the API is healthy and if the model is loaded"""
-    global MODEL
-
-    # Check database connection
-    try:
-        db.execute("SELECT 1")
-        db_status = "connected"
-    except Exception:
-        db_status = "disconnected"
-
-    # Get loaded model info
-    model_info = None
-    if MODEL is not None:
-        try:
-            model_name = (
-                db.query(Model).filter(Model.file_path == MODEL.ckpt_path).first()
-            )
-            model_info = model_name.name if model_name else "unknown"
-        except Exception:
-            model_info = "unknown"
-
-    return {
-        "status": "healthy",
-        "database": db_status,
-        "model_loaded": MODEL is not None,
-        "model_name": model_info,
-    }
-
-
 @app.post("/token", response_model=Token, tags=["authentication"])
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)

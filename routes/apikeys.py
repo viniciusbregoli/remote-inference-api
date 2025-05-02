@@ -13,7 +13,6 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-
 @router.post("/", response_model=APIKey)
 def create_api_key(
     api_key: APIKeyCreate,
@@ -22,16 +21,6 @@ def create_api_key(
         get_current_user
     ),  # Changed from get_current_active_admin
 ):
-    """
-    Create a new API key
-
-    - Regular users can only create keys for themselves
-    - Admin users can create keys for any user
-
-    - **name**: A descriptive name for the API key
-    - **user_id**: ID of the user who owns this key
-    - **expires_at**: Optional expiration date for the key
-    """
     # Check if the user is authorized to create keys for this user_id
     if not current_user.is_admin and current_user.id != api_key.user_id:
         raise HTTPException(
@@ -83,7 +72,7 @@ def read_api_keys(
         user = db.query(User).filter(User.id == key.user_id).first()
         if user:
             key.user_username = user.username
-    
+
     return api_keys
 
 

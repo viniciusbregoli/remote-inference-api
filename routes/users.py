@@ -16,6 +16,16 @@ router = APIRouter(
     tags=["users"],
 )
 
+@router.get("/", response_model=List[UserSchema])
+async def read_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_admin),
+):
+    """Get all users (admin only)"""
+    users = db.query(User).offset(skip).limit(limit).all()
+    return users
 
 @router.post("/", response_model=UserSchema)
 async def create_user(
@@ -49,18 +59,6 @@ async def create_user(
     db.refresh(db_user)
 
     return db_user
-
-
-@router.get("/", response_model=List[UserSchema])
-async def read_users(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_admin),
-):
-    """Get all users (admin only)"""
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
 
 
 @router.put("/{user_id}", response_model=UserSchema)
@@ -145,8 +143,3 @@ async def read_user_stats_endpoint(  # Renamed to avoid conflict with imported f
     """Get current user API usage statistics"""
     return get_user_stats(current_user.id, db)
 
-
-# Ensure __init__.py exists in routes directory if needed for imports
-# If routes/__init__.py doesn't exist, create it:
-# with open("routes/__init__.py", "w") as f:
-#     pass
