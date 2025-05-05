@@ -69,37 +69,6 @@ class APIKey(APIKeyInDB):
     pass
 
 
-# Model Schemas
-class ModelBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-
-
-class ModelCreate(ModelBase):
-    file_path: str
-
-
-class ModelUpdate(BaseModel):
-    name: Optional[str] = None
-    file_path: Optional[str] = None
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-
-
-class ModelInDB(ModelBase):
-    id: int
-    file_path: str
-    is_active: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class Model(ModelInDB):
-    pass
-
-
 # Usage Log Schemas
 class UsageLogBase(BaseModel):
     endpoint: str
@@ -113,14 +82,14 @@ class UsageLogBase(BaseModel):
 class UsageLogCreate(UsageLogBase):
     user_id: int
     api_key_id: int
-    model_id: Optional[int] = None
+    model_name: Optional[str] = None
 
 
 class UsageLogInDB(UsageLogBase):
     id: int
     user_id: int
     api_key_id: int
-    model_id: Optional[int] = None
+    model_name: Optional[str] = None
     timestamp: datetime
 
     class Config:
@@ -128,35 +97,6 @@ class UsageLogInDB(UsageLogBase):
 
 
 class UsageLog(UsageLogInDB):
-    pass
-
-
-# Rate Limit Schemas
-class RateLimitBase(BaseModel):
-    daily_limit: int = 100
-    monthly_limit: int = 3000
-
-
-class RateLimitCreate(RateLimitBase):
-    user_id: int
-
-
-class RateLimitUpdate(BaseModel):
-    daily_limit: Optional[int] = None
-    monthly_limit: Optional[int] = None
-
-
-class RateLimitInDB(RateLimitBase):
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class RateLimit(RateLimitInDB):
     pass
 
 
@@ -176,10 +116,6 @@ class TokenData(BaseModel):
 class UserStats(BaseModel):
     daily_usage: int
     monthly_usage: int
-    daily_limit: int
-    monthly_limit: int
-    daily_percentage: float
-    monthly_percentage: float
 
 
 # Detection Response
@@ -193,3 +129,11 @@ class DetectionResponse(BaseModel):
     detections: List[Detection]
     processing_time: float
     model_name: str
+
+
+# Model related schemas
+class ModelInfo(BaseModel):
+    name: str
+    description: str
+    is_available: bool
+    file_path: str

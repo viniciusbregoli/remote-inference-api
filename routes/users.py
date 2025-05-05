@@ -3,9 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from src.database import get_db, User
-from src.schemas import UserCreate, User as UserSchema, UserStats, UserUpdate
+from src.schemas import UserCreate, User as UserSchema, UserUpdate
 from src.auth import get_current_user, get_current_active_admin, get_password_hash
-from src.rate_limit import get_user_stats
 
 router = APIRouter(
     prefix="/users",
@@ -132,11 +131,3 @@ async def delete_user_endpoint(
 async def read_users_me(current_user: User = Depends(get_current_user)):
     """Get current user information"""
     return current_user
-
-
-@router.get("/me/stats", response_model=UserStats)
-async def read_user_stats_endpoint(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    """Get current user API usage statistics"""
-    return get_user_stats(current_user.id, db)

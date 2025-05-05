@@ -20,12 +20,11 @@ from jose import JWTError, jwt
 
 from routes.apikeys import router as apikeys_router
 from routes.users import router as users_router
-from src.database import get_db, create_tables, init_db, User, Model, UsageLog
+from src.database import get_db, create_tables, init_db, User, UsageLog
 from src.schemas import (
-    ModelCreate,
-    Model as ModelSchema,
     Detection,
     Token,
+    ModelInfo,
 )
 from src.auth import (
     authenticate_user,
@@ -37,42 +36,27 @@ from src.auth import (
     SECRET_KEY,
     ALGORITHM,
 )
-from src.rate_limit import check_rate_limits_with_api_key, log_api_usage
+from src.usage_logger import log_api_usage
 from src.utils import draw_boxes, get_image_size
+from src.model_manager import ModelManager
 
-# Import YOLO model
-from ultralytics import YOLO
-from PIL import Image, ImageDraw, ImageFont
-
-# Model instance
-MODEL = None
-DEFAULT_MODEL_NAME = "yolov8n"
+from PIL import Image
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    global MODEL
-
     # Initialize database
     create_tables()
     init_db()
 
-    # Load default model
-    db = next(get_db())
-    default_model = db.query(Model).filter(Model.name == DEFAULT_MODEL_NAME).first()
+    # Initialize model manager and load default model
+    model_manager = ModelManager()
+    model_manager.load_model("yolov8n")
 
-    if default_model and default_model.is_active:
-        try:
-            print(f"Loading {default_model.name} on startup...")
-            MODEL = YOLO(default_model.file_path)
-            print(f"Model {default_model.name} loaded successfully!")
-        except Exception as e:
-            print(f"ERROR loading model on startup: {str(e)}")
-
+    print("API initialized successfully!")
     yield
 
-    # Cleanup on shutdown
     print("Shutting down application...")
 
 
@@ -84,6 +68,7 @@ app = FastAPI(
 )
 app.include_router(apikeys_router)
 app.include_router(users_router)
+
 # CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
@@ -116,32 +101,58 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/models/", response_model=ModelSchema)
-async def create_model(
-    model: ModelCreate,
-    db: Session = Depends(get_db),
+@app.get("/models", response_model=list[ModelInfo], tags=["models"])
+async def get_available_models(
+    current_user: User = Depends(get_current_user),
+):
+    """Get all available models"""
+    model_manager = ModelManager()
+    return model_manager.get_available_models()
+
+
+@app.post("/models/{model_name}/load", tags=["models"])
+async def load_model(
+    model_name: str,
     current_user: User = Depends(get_current_active_admin),
 ):
-    """Register a new model (admin only)"""
-    # Check if model with this name already exists
-    existing_model = db.query(Model).filter(Model.name == model.name).first()
+    """Load a specific model (admin only)"""
+    model_manager = ModelManager()
+    model = model_manager.load_model(model_name)
 
-    if existing_model:
+    if not model:
         raise HTTPException(
-            status_code=400, detail="Model with this name already exists"
+            status_code=404,
+            detail=f"Model '{model_name}' not found or could not be loaded",
         )
 
-    # Create new model
-    db_model = Model(
-        name=model.name, file_path=model.file_path, description=model.description
+    return {"message": f"Model {model_name} loaded successfully"}
+
+
+@app.get("/models/current", response_model=ModelInfo, tags=["models"])
+async def get_current_model(
+    current_user: User = Depends(get_current_user),
+):
+    """Get the currently loaded model"""
+    model_manager = ModelManager()
+    model, model_name = model_manager.get_current_model()
+
+    if not model or not model_name:
+        raise HTTPException(
+            status_code=404,
+            detail="No model is currently loaded",
+        )
+
+    # Get the model info from the available models
+    models = model_manager.get_available_models()
+    for model_info in models:
+        if model_info["name"] == model_name:
+            return model_info
+
+    # This shouldn't happen if the model manager is working correctly
+    raise HTTPException(
+        status_code=500,
+        detail="Current model information could not be retrieved",
     )
-
-    db.add(db_model)
-    db.commit()
-    db.refresh(db_model)
-
-    return db_model
-
 
 
 @app.post("/detect")
@@ -151,11 +162,8 @@ async def detect_objects(
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
-    global MODEL
-
     # Get user either from JWT token or API key
     user_id = None
-    model_id = None
     api_key_data = None
 
     # Try to get API key authentication first
@@ -164,9 +172,6 @@ async def detect_objects(
         if api_key:
             api_key_data = verify_api_key(api_key, db)
             user_id = api_key_data["user"].id
-
-            # Check rate limits for API key users
-            check_rate_limits_with_api_key(api_key_data, db)
     except HTTPException:
         # If API key auth fails, try JWT token auth
         pass
@@ -200,8 +205,12 @@ async def detect_objects(
             headers={"WWW-Authenticate": "Bearer or APIKey"},
         )
 
+    # Get the current model
+    model_manager = ModelManager()
+    model, model_name = model_manager.get_current_model()
+
     # Check if model is loaded
-    if MODEL is None:
+    if not model:
         raise HTTPException(
             status_code=500, detail="No model loaded. Please load a model first."
         )
@@ -214,15 +223,8 @@ async def detect_objects(
         img_data = await image.read()
         img = Image.open(io.BytesIO(img_data))
 
-        # Get current model from database
-        current_model = (
-            db.query(Model).filter(Model.file_path == MODEL.ckpt_path).first()
-        )
-        if current_model:
-            model_id = current_model.id
-
         # Run inference
-        results = MODEL(img)
+        results = model(img)
 
         # Process results
         detection_results = []
@@ -254,7 +256,7 @@ async def detect_objects(
         processing_time = end_time - start_time
 
         # Log the successful request in background
-        if background_tasks:
+        if background_tasks and db:
             background_tasks.add_task(
                 log_api_usage,
                 user_id=user_id,
@@ -263,7 +265,7 @@ async def detect_objects(
                 request_size=request_size,
                 processing_time=processing_time,
                 status_code=200,
-                model_id=model_id,
+                model_name=model_name,
                 request_ip=request.client.host if request else None,
                 user_agent=request.headers.get("user-agent") if request else None,
                 db=db,
@@ -279,7 +281,7 @@ async def detect_objects(
         processing_time = end_time - start_time
 
         # Log the failed request
-        if background_tasks:
+        if background_tasks and db:
             background_tasks.add_task(
                 log_api_usage,
                 user_id=user_id,
@@ -288,6 +290,7 @@ async def detect_objects(
                 request_size=request_size,
                 processing_time=processing_time,
                 status_code=500,
+                model_name=model_name,
                 request_ip=request.client.host if request else None,
                 user_agent=request.headers.get("user-agent") if request else None,
                 db=db,
