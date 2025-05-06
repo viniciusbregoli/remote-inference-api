@@ -161,18 +161,20 @@ def deactivate_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
-        )
-    # Get the API key
+    # First, get the API key from the database
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
         )
+
+    # Then check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+        )
+
     # Deactivate the API key
     db_api_key.is_active = False
     db.commit()
@@ -187,17 +189,18 @@ def activate_api_key(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Check permissions
-    if not current_user.is_admin and db_api_key.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
-        )
-
+    # First, get the API key from the database
     db_api_key = db.query(APIKeyModel).filter(APIKeyModel.id == api_key_id).first()
 
     if not db_api_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
+        )
+
+    # Then check permissions
+    if not current_user.is_admin and db_api_key.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
         )
 
     # Compare expires_at with an offset-aware datetime

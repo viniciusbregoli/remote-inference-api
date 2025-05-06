@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -16,15 +17,16 @@ router = APIRouter(
 async def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        get_current_active_admin
-    ),  # ensures the user is an admin
+    current_user: User = Depends(get_current_active_admin),
 ):
     """Create a new user (admin only)"""
-    # Check if user with this username or email already exists
+    # Check if user with this username (case-insensitive) or email already exists
     existing_user = (
         db.query(User)
-        .filter((User.username == user.username) | (User.email == user.email))
+        .filter(
+            (func.lower(User.username) == user.username.lower())
+            | (func.lower(User.email) == user.email.lower())
+        )
         .first()
     )
 

@@ -5,6 +5,8 @@ from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+
 import secrets
 import string
 
@@ -44,9 +46,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-# User authentication
 def authenticate_user(db: Session, username: str, password: str):
-    user = db.query(User).filter(User.username == username).first()
+    # Modified to use case-insensitive username comparison
+    user = db.query(User).filter(func.lower(User.username) == username.lower()).first()
     if not user:
         return False
     if not verify_password(password, user.password_hash):
