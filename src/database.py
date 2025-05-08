@@ -28,15 +28,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# Dependency to get the database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 # Database Models
 class User(Base):
     __tablename__ = "users"
@@ -117,6 +108,14 @@ def init_db():
         db.commit()
 
     db.close()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

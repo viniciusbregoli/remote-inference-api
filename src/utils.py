@@ -1,7 +1,7 @@
 import os
 from fastapi import UploadFile
 from PIL import Image, ImageDraw, ImageFont
-from typing import List
+from typing import List, Any
 
 from src.schemas import Detection  # Assuming Detection is defined here
 
@@ -9,15 +9,14 @@ from src.schemas import Detection  # Assuming Detection is defined here
 # Helper function to draw bounding boxes
 def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
     draw = ImageDraw.Draw(image)
+    image_width, image_height = image.size
 
-    # Try to load a font, with fallbacks
-    font_size = 30
+    font_size = min(image_width, image_height) // 30
     try:
         font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
         )
     except IOError:
-        # Fallback to default font
         font = ImageFont.load_default()
 
     for detection in detections:
@@ -25,25 +24,16 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
         confidence = detection.confidence
         class_name = detection.class_name
 
-        # Draw rectangle with thinner lines
         draw.rectangle(box, outline="red", width=3)
 
-        # Draw label with smaller text and background
         label = f"{class_name} {confidence:.2f}"
 
-        # Get text dimensions
-        try:
-            left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
-            text_width = right - left
-            text_height = bottom - top
-        except AttributeError:
-            # For older Pillow versions
-            text_width, text_height = draw.textsize(label, font=font)
+        left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+        text_width = right - left
+        text_height = bottom - top
 
-        # Smaller padding around text
         padding = 8
 
-        # Draw background rectangle for text with smaller padding
         draw.rectangle(
             [
                 (box[0] - padding, box[1] - text_height - padding),
@@ -52,7 +42,6 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
             fill="red",
         )
 
-        # Draw text with smaller padding
         draw.text(
             (box[0] - padding + 3, box[1] - text_height - padding + 3),
             label,
@@ -61,6 +50,33 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
         )
 
     return image
+
+
+# Process model results into Detection objects
+def process_detection_results(results: List[Any]) -> List[Detection]:
+    """
+    Process the raw model results into a list of Detection objects.
+
+    Args:
+        results: The raw output from the YOLO model
+
+    Returns:
+        A list of Detection objects with bounding boxes, confidence scores, and class names
+    """
+    detection_results = []
+
+    for result in results:
+        boxes = result.boxes.cpu().numpy()
+        for box in boxes:
+            detection_results.append(
+                Detection(
+                    box=box.xyxy[0].tolist(),
+                    confidence=float(box.conf[0]),
+                    class_name=result.names[int(box.cls[0])],
+                )
+            )
+
+    return detection_results
 
 
 # Calculate image size in bytes

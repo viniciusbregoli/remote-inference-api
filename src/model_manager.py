@@ -11,22 +11,6 @@ SUPPORTED_MODELS = {
         "file_name": "yolov8n.pt",
         "description": "YOLOv8 Nano - smallest and fastest model",
     },
-    "yolov8s": {
-        "file_name": "yolov8s.pt",
-        "description": "YOLOv8 Small - balanced model",
-    },
-    "yolov8m": {
-        "file_name": "yolov8m.pt",
-        "description": "YOLOv8 Medium - larger, more accurate model",
-    },
-    "yolov8l": {
-        "file_name": "yolov8l.pt",
-        "description": "YOLOv8 Large - high accuracy model",
-    },
-    "yolov8x": {
-        "file_name": "yolov8x.pt",
-        "description": "YOLOv8 XLarge - highest accuracy model",
-    },
 }
 
 DEFAULT_MODEL = "yolov8n"
@@ -44,21 +28,6 @@ class ModelManager:
         if cls._instance is None:
             cls._instance = super(ModelManager, cls).__new__(cls)
         return cls._instance
-
-    def get_available_models(self) -> List[Dict]:
-        """Get list of available models"""
-        models = []
-        for model_name, info in SUPPORTED_MODELS.items():
-            model_path = MODELS_DIR / info["file_name"]
-            models.append(
-                {
-                    "name": model_name,
-                    "description": info["description"],
-                    "is_available": model_path.exists(),
-                    "file_path": str(model_path),
-                }
-            )
-        return models
 
     def get_model_path(self, model_name: str) -> Optional[Path]:
         """Get the path to a model file by name"""

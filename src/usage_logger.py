@@ -14,7 +14,6 @@ def log_api_usage(
     user_agent: str = None,
     db: Session = None,
 ):
-    """Log API usage without rate limiting"""
     if db is None:
         return None
 
