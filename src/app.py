@@ -1,5 +1,6 @@
 import os
 import time
+import base64
 from fastapi import (
     FastAPI,
     File,
@@ -13,30 +14,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import io
 from contextlib import asynccontextmanager
+import redis
+import json
 
-from src.database import get_db, create_tables
-from src.auth import (
-    authenticate_request,
-)
-from src.usage_logger import log_api_usage
-from src.utils import draw_boxes, get_image_size, process_detection_results
-from src.model_manager import ModelManager
+from database import get_db, create_tables
+from auth import authenticate_request
+from usage_logger import log_api_usage
+from utils import get_image_size
 
-from PIL import Image
-
+# Redis configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_QUEUE = "detection_jobs"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     create_tables()
-
-    model_manager = ModelManager()
-    model_manager.load_model("yolov8n")
-
     print("API initialized successfully!")
     yield
     print("Shutting down application...")
-
 
 app = FastAPI(
     title="YOLO Object Detection API",
@@ -52,6 +49,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_redis_connection():
+    """Get Redis connection"""
+    return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 @app.post("/detect")
 async def detect_objects(
@@ -59,49 +59,35 @@ async def detect_objects(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    # Authenticate the request - this will raise an HTTPException if authentication fails
+    # Authenticate the request
     user_id, api_key_data = authenticate_request(request, db)
-
-    # Get the current model already initialized in lifespan
-    model_manager = ModelManager()
-    model, model_name = model_manager.get_current_model()
-
-    # Check if model is loaded
-    if not model:
-        raise HTTPException(
-            status_code=500, detail="No model loaded. Please load a model first."
-        )
 
     start_time = time.time()
     request_size = get_image_size(image)
 
     try:
-        # Get image from request
+        # Get image from request and convert to base64
         img_data = await image.read()
-        img = Image.open(io.BytesIO(img_data))
+        img_base64 = base64.b64encode(img_data).decode('utf-8')
 
-        # Run inference
-        results = model(img)
+        # Create job payload
+        job_payload = {
+            "image": img_base64,
+            "user_id": user_id,
+            "api_key_id": api_key_data["api_key"].id if api_key_data else None,
+            "request_ip": request.client.host if request else None,
+            "user_agent": request.headers.get("user-agent") if request else None,
+            "timestamp": time.time()
+        }
 
-        # Process results using the helper function
-        detection_results = process_detection_results(results)
-
-        # Draw boxes on image
-        annotated_img = draw_boxes(img.copy(), detection_results)
-
-        # Save image to bytes
-        img_byte_arr = io.BytesIO()
-        annotated_img.save(img_byte_arr, format="JPEG")
-        img_byte_arr.seek(0)
-
-        # Save the image temporarily
-        temp_path = "annotated_image.jpg"
-        with open(temp_path, "wb") as f:
-            f.write(img_byte_arr.getvalue())
+        # Push job to Redis queue
+        redis_conn = get_redis_connection()
+        redis_conn.lpush(REDIS_QUEUE, json.dumps(job_payload))
 
         end_time = time.time()
         processing_time = end_time - start_time
 
+        # Log the request
         log_api_usage(
             user_id=user_id,
             api_key_id=api_key_data["api_key"].id if api_key_data else None,
@@ -109,17 +95,13 @@ async def detect_objects(
             request_size=request_size,
             processing_time=processing_time,
             status_code=200,
-            model_name=model_name,
+            model_name="queued",  # Since we don't know which model will process it
             request_ip=request.client.host if request else None,
             user_agent=request.headers.get("user-agent") if request else None,
             db=db,
         )
 
-        # Return the image as a file response
-        return FileResponse(
-            temp_path, media_type="image/jpeg", filename="annotated_image.jpg"
-        )
-
+        return {"status": "success", "message": "Image queued for processing"}
 
     except Exception as e:
         end_time = time.time()
@@ -133,19 +115,17 @@ async def detect_objects(
             request_size=request_size,
             processing_time=processing_time,
             status_code=500,
-            model_name=model_name,
+            model_name="queued",
             request_ip=request.client.host if request else None,
             user_agent=request.headers.get("user-agent") if request else None,
             db=db,
         )
 
-        error_msg = f"Error processing image: {str(e)}"
+        error_msg = f"Error processing request: {str(e)}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
-
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 5000))
     uvicorn.run(app, host="0.0.0.0", port=port)

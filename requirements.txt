@@ -1,14 +1,17 @@
 # Core dependencies
-fastapi
-uvicorn
+fastapi==0.104.1
+uvicorn==0.24.0
 pydantic
 
 # ML and Image Processing
-ultralytics
-Pillow
+ultralytics==8.0.196
+Pillow==10.1.0
 
 # Utilities
-python-dotenv
-sqlalchemy
-psycopg2-binary
-python-multipart
+python-dotenv==1.0.0
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+python-multipart==0.0.6
+python-jose==3.3.0
+passlib==1.7.4
+redis==5.0.1
