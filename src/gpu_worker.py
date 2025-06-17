@@ -2,11 +2,21 @@ import os
 import time
 import json
 import base64
-import redis
+from redis.asyncio import Redis
 from PIL import Image
 import io
 from ultralytics import YOLO
 from pathlib import Path
+from typing import Optional, Dict, Any, Tuple
+import asyncio
+from sqlalchemy.orm import Session
+import torch
+from ultralytics.nn.tasks import DetectionModel
+
+from src.database import SessionLocal, ApiLog, Detection, BoundingBox
+
+# Allow loading of YOLOv8 models with recent PyTorch versions
+torch.serialization.add_safe_globals([DetectionModel])
 
 # Redis configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -17,69 +27,144 @@ REDIS_QUEUE = "detection_jobs"
 MODELS_DIR = Path("models")
 DEFAULT_MODEL = "yolov8n"
 
+
 class GPUWorker:
     def __init__(self):
-        self.redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-        self.model = self.load_model()
+        self.redis_conn: Optional[Redis] = None
+        self.model: YOLO = self.load_model()
+        self.model_name = DEFAULT_MODEL
 
-    def load_model(self):
+    def load_model(self) -> YOLO:
         """Load the YOLO model"""
         model_path = MODELS_DIR / f"{DEFAULT_MODEL}.pt"
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found at {model_path}")
         return YOLO(str(model_path))
 
-    def process_image(self, image_data):
+    async def init_redis(self):
+        """Initialize Redis connection"""
+        self.redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
+    def process_image(self, image_data: str) -> Tuple[list[Dict[str, Any]], int, int]:
         """Process an image using the loaded model"""
         # Convert base64 to image
-        img_bytes = base64.b64decode(image_data)
+        img_bytes = base64.b64decodete(image_data)
         img = Image.open(io.BytesIO(img_bytes))
+        width, height = img.size
 
         # Run inference
         results = self.model(img)
-        
+
         # Process results
-        detections = []
+        detections: list[Dict[str, Any]] = []
         for r in results:
             boxes = r.boxes
             for box in boxes:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 conf = float(box.conf[0])
                 cls = int(box.cls[0])
-                detections.append({
-                    "class": cls,
-                    "confidence": conf,
-                    "bbox": [x1, y1, x2, y2]
-                })
+                assert self.model.names is not None
+                class_name = self.model.names[cls]
+                detections.append(
+                    {
+                        "class_name": class_name,
+                        "confidence": conf,
+                        "x1": x1,
+                        "y1": y1,
+                        "x2": x2,
+                        "y2": y2,
+                    }
+                )
 
-        return detections
+        return detections, width, height
 
-    def run(self):
+    async def run(self):
         """Main worker loop"""
+        await self.init_redis()
+        if not self.redis_conn:
+            raise RuntimeError("Redis connection not initialized")
+
         print("GPU Worker started. Waiting for jobs...")
-        
+
         while True:
             try:
                 # Get job from queue (blocking)
-                job_data = self.redis_conn.brpop(REDIS_QUEUE, timeout=0)
-                
+                job_data = await self.redis_conn.brpop(REDIS_QUEUE)  # type: ignore
+
                 if job_data:
-                    # job_data is a tuple (queue_name, job_json)
                     job_json = job_data[1]
                     job = json.loads(job_json)
-                    
-                    print(f"Processing job for user {job['user_id']}")
-                    
+                    job_id = job["job_id"]
+
+                    print(f"Processing job {job_id}")
+                    start_time = time.time()
+
                     # Process the image
-                    detections = self.process_image(job['image'])
-                    
-                    # TODO: Handle the results (store in database, notify client, etc.)
-                    print(f"Processed image with {len(detections)} detections")
-                    
+                    detections, width, height = self.process_image(job["image"])
+                    processing_time = time.time() - start_time
+
+                    # Store results in database
+                    with SessionLocal() as db:
+                        self.store_detection_results(
+                            db,
+                            job_id,
+                            self.model_name,
+                            width,
+                            height,
+                            processing_time,
+                            detections,
+                        )
+
+                    print(
+                        f"Processed job {job_id} with {len(detections)} detections in {processing_time:.4f}s"
+                    )
+
             except Exception as e:
                 print(f"Error processing job: {e}")
                 time.sleep(1)  # Prevent tight loop on errors
 
+    def store_detection_results(
+        self,
+        db: Session,
+        job_id: int,
+        model_name: str,
+        width: int,
+        height: int,
+        processing_time: float,
+        detections: list[Dict[str, Any]],
+    ):
+        """Store detection results in the database"""
+        # Get the ApiLog entry
+        api_log_entry = db.query(ApiLog).filter(ApiLog.id == job_id).first()
+        if not api_log_entry:
+            print(f"ApiLog with id {job_id} not found.")
+            return
+
+        # Update ApiLog with model name and status code
+        db.query(ApiLog).filter(ApiLog.id == job_id).update(
+            {"model_name": model_name, "status_code": 200}
+        )
+
+        # Create Detection entry
+        detection_entry = Detection(
+            job_id=job_id,
+            model_name=model_name,
+            image_width=width,
+            image_height=height,
+            processing_time=processing_time,
+        )
+        db.add(detection_entry)
+        db.commit()
+        db.refresh(detection_entry)
+
+        # Create BoundingBox entries
+        for det in detections:
+            bbox_entry = BoundingBox(detection_id=detection_entry.id, **det)
+            db.add(bbox_entry)
+
+        db.commit()
+
+
 if __name__ == "__main__":
     worker = GPUWorker()
-    worker.run() 
+    asyncio.run(worker.run())

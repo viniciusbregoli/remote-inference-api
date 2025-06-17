@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import secrets
 import string
@@ -15,17 +15,12 @@ def verify_api_key(api_key: str, db: Session) -> Dict:
     Raises an HTTPException if the API key is invalid or expired.
     """
     # Defensive programming: strip whitespace from the key
-    clean_api_key = api_key.strip() if api_key else None
-    
-    if not clean_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key",
-            headers={"WWW-Authenticate": "APIKey"},
-        )
+    clean_api_key = api_key.strip()
 
     db_api_key = (
-        db.query(APIKey).filter(APIKey.key == clean_api_key, APIKey.is_active == True).first()
+        db.query(APIKey)
+        .filter(APIKey.key == clean_api_key, APIKey.is_active == True)
+        .first()
     )
 
     if not db_api_key:
@@ -35,7 +30,7 @@ def verify_api_key(api_key: str, db: Session) -> Dict:
             headers={"WWW-Authenticate": "APIKey"},
         )
 
-    if db_api_key.expires_at and db_api_key.expires_at.replace(
+    if db_api_key.expires_at is not None and db_api_key.expires_at.replace(
         tzinfo=UTC
     ) < datetime.now(UTC):
         raise HTTPException(
@@ -66,21 +61,29 @@ def generate_api_key(length=32) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def authenticate_request(
-    request: Request, db: Session
-) -> Tuple[Optional[int], Optional[Dict]]:
+def authenticate_request(request: Request, db: Session = Depends(get_db)) -> Dict:
     """
     Authenticate a request using an API key from the 'X-API-Key' header.
-    Returns a tuple of (user_id, api_key_data).
+    Returns a dictionary with user_id and api_key_id.
     Raises an HTTPException with status code 401 if authentication fails.
     """
     api_key = request.headers.get("x-api-key")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key",
+            headers={"WWW-Authenticate": "APIKey"},
+        )
     try:
         api_key_data = verify_api_key(api_key, db)
-        return api_key_data["user"].id, api_key_data
+        return {
+            "user_id": api_key_data["user"].id,
+            "api_key_id": api_key_data["api_key"].id,
+        }
     except HTTPException as e:
         raise e
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail="An unexpected error occurred during authentication."
+            status_code=500,
+            detail="An unexpected error occurred during authentication.",
         )

@@ -36,23 +36,20 @@ class APIKey(APIKeyInDB):
     pass
 
 
-# Usage Log Schemas
-class UsageLogBase(BaseModel):
+# Api Log Schemas
+class ApiLogBase(BaseModel):
     endpoint: str
     request_size: int
-    processing_time: float
     status_code: int
-    request_ip: Optional[str] = None
-    user_agent: Optional[str] = None
 
 
-class UsageLogCreate(UsageLogBase):
+class ApiLogCreate(ApiLogBase):
     user_id: int
     api_key_id: int
     model_name: Optional[str] = None
 
 
-class UsageLogInDB(UsageLogBase):
+class ApiLogInDB(ApiLogBase):
     id: int
     user_id: int
     api_key_id: int
@@ -63,21 +60,56 @@ class UsageLogInDB(UsageLogBase):
         from_attributes = True
 
 
-class UsageLog(UsageLogInDB):
+class ApiLog(ApiLogInDB):
     pass
 
 
-# Detection Response
-class Detection(BaseModel):
-    box: List[float]  # [x1, y1, x2, y2]
-    confidence: float
+# Detection Schemas
+class BoundingBoxBase(BaseModel):
     class_name: str
+    confidence: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
 
 
-class DetectionResponse(BaseModel):
-    detections: List[Detection]
-    processing_time: float
+class BoundingBoxCreate(BoundingBoxBase):
+    detection_id: int
+
+
+class BoundingBox(BoundingBoxBase):
+    id: int
+    detection_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class DetectionBase(BaseModel):
     model_name: str
+    image_width: int
+    image_height: int
+    processing_time: float
+
+
+class DetectionCreate(DetectionBase):
+    job_id: int
+
+
+class Detection(DetectionBase):
+    id: int
+    job_id: int
+    bounding_boxes: List[BoundingBox] = []
+
+    class Config:
+        from_attributes = True
+
+
+# Detection Response
+class DetectionResponse(BaseModel):
+    job_id: int
+    message: str
 
 
 # Model related schemas

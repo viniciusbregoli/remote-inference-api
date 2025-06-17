@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 
 # Add the src directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
@@ -9,4 +10,4 @@ from gpu_worker import GPUWorker
 
 if __name__ == "__main__":
     worker = GPUWorker()
-    worker.run() 
+    asyncio.run(worker.run())
