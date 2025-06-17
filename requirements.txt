@@ -7,16 +7,8 @@ pydantic
 ultralytics
 Pillow
 
-# Database
-sqlalchemy
-psycopg2-binary
-alembic
-
-# Authentication
-python-jose[cryptography]
-passlib
-python-multipart
-
 # Utilities
 python-dotenv
-email-validator
+sqlalchemy
+psycopg2-binary
+python-multipart

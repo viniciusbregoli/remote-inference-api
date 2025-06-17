@@ -10,23 +10,12 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import io
 from contextlib import asynccontextmanager
-from jose import jwt
 
-from routes.apikeys import router as apikeys_router
-from routes.users import router as users_router
-from src.database import get_db, create_tables, init_db, User
-from src.schemas import (
-    Detection,
-    Token,
-    TokenData,
-)
+from src.database import get_db, create_tables
 from src.auth import (
-    authenticate_user,
-    create_access_token,
     authenticate_request,
 )
 from src.usage_logger import log_api_usage
@@ -40,7 +29,6 @@ from PIL import Image
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     create_tables()
-    init_db()
 
     model_manager = ModelManager()
     model_manager.load_model("yolov8n")
@@ -55,8 +43,6 @@ app = FastAPI(
     description="API for object detection using YOLOv8 models",
     lifespan=lifespan,
 )
-app.include_router(apikeys_router)
-app.include_router(users_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,18 +51,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.post("/token", response_model=Token)
-async def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
-):
-    user = authenticate_user(db, form_data.username, form_data.password)
-
-    data = TokenData(username=user.username, user_id=user.id, is_admin=user.is_admin)
-    access_token = create_access_token(data=data)
-
-    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @app.post("/detect")
