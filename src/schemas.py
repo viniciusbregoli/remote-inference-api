@@ -3,6 +3,37 @@ from typing import Optional, List
 from datetime import datetime
 
 
+# Job Queue Schemas
+class JobBase(BaseModel):
+    """Base schema for job data"""
+
+    job_id: int
+    image: str = Field(..., description="Base64 encoded image data")
+
+
+class JobCreate(JobBase):
+    """Schema for creating a new job to be sent to Redis queue"""
+
+    pass
+
+
+class JobProcess(JobBase):
+    """Schema for processing a job fetched from Redis queue"""
+
+    model_name: Optional[str] = Field(None, description="Model to use for processing")
+    priority: Optional[int] = Field(1, description="Job priority (1=high, 5=low)")
+
+
+class JobResult(BaseModel):
+    """Schema for job processing results"""
+
+    job_id: int
+    success: bool
+    error_message: Optional[str] = None
+    processing_time: Optional[float] = None
+    detections_count: Optional[int] = None
+
+
 # API Key Schemas
 class APIKeyBase(BaseModel):
     name: str

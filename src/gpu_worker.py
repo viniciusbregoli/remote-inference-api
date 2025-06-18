@@ -11,12 +11,20 @@ from typing import Optional, Dict, Any, Tuple
 import asyncio
 from sqlalchemy.orm import Session
 import torch
-from ultralytics.nn.tasks import DetectionModel
+from ultralytics.nn import tasks
 
 from src.database import SessionLocal, ApiLog, Detection, BoundingBox
+from src.schemas import JobProcess, JobResult
 
-# Allow loading of YOLOv8 models with recent PyTorch versions
-torch.serialization.add_safe_globals([DetectionModel])
+
+# Monkey patch ultralytics to use weights_only=False for PyTorch 2.6 compatibility
+def torch_safe_load(file):
+    """Load a PyTorch model with weights_only=False."""
+    return torch.load(file, map_location="cpu", weights_only=False), file
+
+
+# Apply the monkey patch
+tasks.torch_safe_load = torch_safe_load
 
 # Redis configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -48,7 +56,7 @@ class GPUWorker:
     def process_image(self, image_data: str) -> Tuple[list[Dict[str, Any]], int, int]:
         """Process an image using the loaded model"""
         # Convert base64 to image
-        img_bytes = base64.b64decodete(image_data)
+        img_bytes = base64.b64decode(image_data)
         img = Image.open(io.BytesIO(img_bytes))
         width, height = img.size
 
@@ -93,35 +101,88 @@ class GPUWorker:
 
                 if job_data:
                     job_json = job_data[1]
-                    job = json.loads(job_json)
-                    job_id = job["job_id"]
 
-                    print(f"Processing job {job_id}")
+                    # Parse and validate job using schema
+                    try:
+                        job = JobProcess.model_validate_json(job_json)
+                    except Exception as e:
+                        print(f"Invalid job format: {e}")
+                        continue
+
+                    print(f"Processing job {job.job_id}")
                     start_time = time.time()
 
-                    # Process the image
-                    detections, width, height = self.process_image(job["image"])
-                    processing_time = time.time() - start_time
+                    try:
+                        # Process the image
+                        detections, width, height = self.process_image(job.image)
+                        processing_time = time.time() - start_time
 
-                    # Store results in database
-                    with SessionLocal() as db:
-                        self.store_detection_results(
-                            db,
-                            job_id,
-                            self.model_name,
-                            width,
-                            height,
-                            processing_time,
-                            detections,
+                        # Store results in database
+                        with SessionLocal() as db:
+                            self.store_detection_results(
+                                db,
+                                job.job_id,
+                                self.model_name,
+                                width,
+                                height,
+                                processing_time,
+                                detections,
+                            )
+
+                        # Create successful job result
+                        result = self.create_job_result(
+                            job_id=job.job_id,
+                            success=True,
+                            processing_time=processing_time,
+                            detections_count=len(detections),
                         )
 
-                    print(
-                        f"Processed job {job_id} with {len(detections)} detections in {processing_time:.4f}s"
-                    )
+                        # Publish result to Redis
+                        result_key = f"result_{job.job_id}"
+                        await self.redis_conn.lpush(
+                            result_key, result.model_dump_json()
+                        )  # type: ignore
+
+                        print(
+                            f"Processed job {job.job_id} with {len(detections)} detections in {processing_time:.4f}s"
+                        )
+
+                    except Exception as processing_error:
+                        # Create failed job result
+                        result = self.create_job_result(
+                            job_id=job.job_id,
+                            success=False,
+                            error_message=str(processing_error),
+                        )
+
+                        # Publish error result to Redis
+                        result_key = f"result_{job.job_id}"
+                        await self.redis_conn.lpush(
+                            result_key, result.model_dump_json()
+                        )  # type: ignore
+
+                        print(f"Error processing job {job.job_id}: {processing_error}")
 
             except Exception as e:
-                print(f"Error processing job: {e}")
+                print(f"Error in worker loop: {e}")
                 time.sleep(1)  # Prevent tight loop on errors
+
+    def create_job_result(
+        self,
+        job_id: int,
+        success: bool,
+        processing_time: Optional[float] = None,
+        detections_count: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> JobResult:
+        """Create a job result object"""
+        return JobResult(
+            job_id=job_id,
+            success=success,
+            processing_time=processing_time,
+            detections_count=detections_count,
+            error_message=error_message,
+        )
 
     def store_detection_results(
         self,

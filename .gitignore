@@ -1,5 +1,5 @@
 /.venv
-/models/yolov8n.pt
+/models/*
 .env
 /__pycache__
 /propostas-api.docx

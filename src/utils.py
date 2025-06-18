@@ -3,11 +3,11 @@ from fastapi import UploadFile
 from PIL import Image, ImageDraw, ImageFont
 from typing import List, Any
 
-from src.schemas import Detection  # Assuming Detection is defined here
+from src.schemas import BoundingBoxBase
 
 
 # Helper function to draw bounding boxes
-def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
+def draw_boxes(image: Image.Image, detections: List[BoundingBoxBase]) -> Image.Image:
     draw = ImageDraw.Draw(image)
     image_width, image_height = image.size
 
@@ -20,7 +20,7 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
         font = ImageFont.load_default()
 
     for detection in detections:
-        box = detection.box
+        box = [detection.x1, detection.y1, detection.x2, detection.y2]
         confidence = detection.confidence
         class_name = detection.class_name
 
@@ -52,27 +52,31 @@ def draw_boxes(image: Image.Image, detections: List[Detection]) -> Image.Image:
     return image
 
 
-# Process model results into Detection objects
-def process_detection_results(results: List[Any]) -> List[Detection]:
+# Process model results into BoundingBox objects
+def process_detection_results(results: List[Any]) -> List[BoundingBoxBase]:
     """
-    Process the raw model results into a list of Detection objects.
+    Process the raw model results into a list of BoundingBox objects.
 
     Args:
         results: The raw output from the YOLO model
 
     Returns:
-        A list of Detection objects with bounding boxes, confidence scores, and class names
+        A list of BoundingBox objects with bounding boxes, confidence scores, and class names
     """
     detection_results = []
 
     for result in results:
         boxes = result.boxes.cpu().numpy()
         for box in boxes:
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
             detection_results.append(
-                Detection(
-                    box=box.xyxy[0].tolist(),
-                    confidence=float(box.conf[0]),
+                BoundingBoxBase(
                     class_name=result.names[int(box.cls[0])],
+                    confidence=float(box.conf[0]),
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
                 )
             )
 
