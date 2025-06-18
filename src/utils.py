@@ -2,12 +2,35 @@ import os
 from fastapi import UploadFile
 from PIL import Image, ImageDraw, ImageFont
 from typing import List, Any
+import redis
+from src.schemas import BoundingBoxBase, ApiLogCreate, ApiLogInDB as ApiLogSchema
+from sqlalchemy.orm import Session
+from src.database import ApiLog as ApiLogModel
 
-from src.schemas import BoundingBoxBase
+
+def get_redis_connection(redis_pool: redis.ConnectionPool):
+    """Get Redis connection from pool"""
+    return redis.Redis(connection_pool=redis_pool)
 
 
-# Helper function to draw bounding boxes
+def log_api_call(db: Session, log_data: ApiLogCreate) -> ApiLogSchema:
+    """
+    Logs an API call to the database and returns the Pydantic model.
+    """
+    # Create SQLAlchemy model
+    log_entry = ApiLogModel(**log_data.model_dump())
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+
+    # Convert SQLAlchemy model to Pydantic schema
+    return ApiLogSchema.model_validate(log_entry)
+
+
 def draw_boxes(image: Image.Image, detections: List[BoundingBoxBase]) -> Image.Image:
+    """
+    Draw bounding boxes on an image.
+    """
     draw = ImageDraw.Draw(image)
     image_width, image_height = image.size
 

@@ -15,12 +15,11 @@ from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 import redis
 
-from database import get_db, create_tables, SessionLocal
+from database import get_db, SessionLocal
 from auth import authenticate_request
-from usage_logger import log_api_call
-from database import Detection as DetectionModel
-from schemas import ApiLogCreate, JobCreate, JobResult
-from utils import get_image_size
+from database import Detection as DetectionModel, BoundingBox as BoundingBoxModel
+from schemas import ApiLogCreate, JobCreate, JobResult, AuthenticateResponse
+from utils import get_image_size, get_redis_connection, log_api_call
 
 # Redis configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -36,7 +35,6 @@ redis_pool = redis.ConnectionPool(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    create_tables()
     print("API initialized successfully!")
     yield
     print("Shutting down application...")
@@ -48,6 +46,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS middleware are needed to allow requests from all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -57,21 +56,16 @@ app.add_middleware(
 )
 
 
-def get_redis_connection():
-    """Get Redis connection from pool"""
-    return redis.Redis(connection_pool=redis_pool)
-
-
 @app.post("/detect")
 async def detect_objects(
     request: Request,
     image: UploadFile = File(...),
-    timeout: int = 30,  # Add timeout parameter
+    timeout: int = 30,
     db: Session = Depends(get_db),
-    auth_data: dict = Depends(authenticate_request),
+    auth_data: AuthenticateResponse = Depends(authenticate_request),
 ):
-    user_id = auth_data["user_id"]
-    api_key_id = auth_data["api_key_id"]
+    user_id = auth_data.user_id
+    api_key_id = auth_data.api_key_id
 
     request_size = get_image_size(image)
 
@@ -88,18 +82,16 @@ async def detect_objects(
             ),
         )
 
-        # Get image from request and convert to base64
-        img_data = await image.read()
+        img_data = await image.read()  # wait for the image to be read
         img_base64 = base64.b64encode(img_data).decode("utf-8")
 
-        # Create job payload using schema
         job_payload = JobCreate(
             job_id=log_entry.id,
             image=img_base64,
         )
 
         # Push job to Redis queue (as JSON string)
-        redis_conn = get_redis_connection()
+        redis_conn = get_redis_connection(redis_pool)
         redis_conn.lpush(REDIS_DETECTION_QUEUE, job_payload.model_dump_json())
 
         result_key = f"result_{log_entry.id}"
@@ -116,41 +108,42 @@ async def detect_objects(
                 if job_result.success:
                     # Fetch the detection from database
 
-                    with SessionLocal() as session:
-                        detection = (
-                            session.query(DetectionModel)
-                            .filter(DetectionModel.job_id == log_entry.id)
-                            .first()
-                        )
+                    detection = (
+                        db.query(DetectionModel)
+                        .join(BoundingBoxModel)
+                        .filter(DetectionModel.job_id == log_entry.id)
+                        .first()
+                    )
 
-                        if detection:
-                            # Convert to dict for JSON response
-                            detection_dict = {
-                                "id": detection.id,
-                                "job_id": detection.job_id,
-                                "model_name": detection.model_name,
-                                "image_width": detection.image_width,
-                                "image_height": detection.image_height,
-                                "processing_time": detection.processing_time,
-                                "bounding_boxes": [
-                                    {
-                                        "id": bb.id,
-                                        "class_name": bb.class_name,
-                                        "confidence": bb.confidence,
-                                        "x1": bb.x1,
-                                        "y1": bb.y1,
-                                        "x2": bb.x2,
-                                        "y2": bb.y2,
-                                    }
-                                    for bb in detection.bounding_boxes
-                                ],
-                            }
-                            return detection_dict
-                        else:
-                            raise HTTPException(
-                                status_code=500,
-                                detail="Detection processed but not found in database",
-                            )
+                    if detection:
+                        # Convert to dict for JSON response
+                        detection_dict = {
+                            "id": detection.id,
+                            "job_id": detection.job_id,
+                            "model_name": detection.model_name,
+                            "image_width": detection.image_width,
+                            "image_height": detection.image_height,
+                            "image_hash": detection.image_hash,
+                            "processing_time": detection.processing_time,
+                            "bounding_boxes": [
+                                {
+                                    "id": bb.id,
+                                    "class_name": bb.class_name,
+                                    "confidence": bb.confidence,
+                                    "x1": bb.x1,
+                                    "y1": bb.y1,
+                                    "x2": bb.x2,
+                                    "y2": bb.y2,
+                                }
+                                for bb in detection.bounding_boxes
+                            ],
+                        }
+                        return detection_dict
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Detection processed but not found in database",
+                        )
                 else:
                     raise HTTPException(
                         status_code=500,
@@ -216,7 +209,7 @@ async def websocket_detect(websocket: WebSocket):
                 )
 
                 # Push job to Redis queue
-                redis_conn = get_redis_connection()
+                redis_conn = get_redis_connection(redis_pool)
                 redis_conn.lpush(REDIS_DETECTION_QUEUE, job_payload.model_dump_json())
 
                 # Send acknowledgment
@@ -240,6 +233,7 @@ async def websocket_detect(websocket: WebSocket):
                         # Fetch detection from database
                         detection = (
                             db.query(DetectionModel)
+                            .join(BoundingBoxModel)
                             .filter(DetectionModel.job_id == log_entry.id)
                             .first()
                         )

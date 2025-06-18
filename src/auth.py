@@ -7,9 +7,10 @@ import secrets
 import string
 
 from src.database import get_db, User, APIKey
+from src.schemas import AuthenticateResponse, ApiKeyAuthenticateResponse
 
 
-def verify_api_key(api_key: str, db: Session) -> Dict:
+def verify_api_key(api_key: str, db: Session) -> ApiKeyAuthenticateResponse:
     """Verify an API key.
     Returns a dictionary containing the API key and the associated user.
     Raises an HTTPException if the API key is invalid or expired.
@@ -52,7 +53,10 @@ def verify_api_key(api_key: str, db: Session) -> Dict:
             headers={"WWW-Authenticate": "APIKey"},
         )
 
-    return {"api_key": db_api_key, "user": user}
+    return ApiKeyAuthenticateResponse(
+        user_id=getattr(user, "id"),
+        api_key_id=getattr(db_api_key, "id"),
+    )
 
 
 def generate_api_key(length=32) -> str:
@@ -61,10 +65,12 @@ def generate_api_key(length=32) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def authenticate_request(request: Request, db: Session = Depends(get_db)) -> Dict:
+def authenticate_request(
+    request: Request, db: Session = Depends(get_db)
+) -> AuthenticateResponse:
     """
     Authenticate a request using an API key from the 'X-API-Key' header.
-    Returns a dictionary with user_id and api_key_id.
+    Returns an AuthenticateResponse object with user_id and api_key_id.
     Raises an HTTPException with status code 401 if authentication fails.
     """
     api_key = request.headers.get("x-api-key")
@@ -76,10 +82,10 @@ def authenticate_request(request: Request, db: Session = Depends(get_db)) -> Dic
         )
     try:
         api_key_data = verify_api_key(api_key, db)
-        return {
-            "user_id": api_key_data["user"].id,
-            "api_key_id": api_key_data["api_key"].id,
-        }
+        return AuthenticateResponse(
+            user_id=api_key_data.user_id,
+            api_key_id=api_key_data.api_key_id,
+        )
     except HTTPException as e:
         raise e
     except Exception as e:

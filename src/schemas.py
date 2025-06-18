@@ -3,7 +3,6 @@ from typing import Optional, List
 from datetime import datetime
 
 
-# Job Queue Schemas
 class JobBase(BaseModel):
     """Base schema for job data"""
 
@@ -34,7 +33,6 @@ class JobResult(BaseModel):
     detections_count: Optional[int] = None
 
 
-# API Key Schemas
 class APIKeyBase(BaseModel):
     name: str
 
@@ -62,12 +60,6 @@ class APIKeyInDB(APIKeyBase):
     class Config:
         from_attributes = True
 
-
-class APIKey(APIKeyInDB):
-    pass
-
-
-# Api Log Schemas
 class ApiLogBase(BaseModel):
     request_size: int
     status_code: int
@@ -90,9 +82,6 @@ class ApiLogInDB(ApiLogBase):
         from_attributes = True
 
 
-class ApiLog(ApiLogInDB):
-    pass
-
 
 # Detection Schemas
 class BoundingBoxBase(BaseModel):
@@ -108,7 +97,7 @@ class BoundingBoxCreate(BoundingBoxBase):
     detection_id: int
 
 
-class BoundingBox(BoundingBoxBase):
+class BoundingBoxInDB(BoundingBoxBase):
     id: int
     detection_id: int
 
@@ -128,24 +117,18 @@ class DetectionCreate(DetectionBase):
     job_id: int
 
 
-class Detection(DetectionBase):
+class DetectionInDB(DetectionBase):
     id: int
     job_id: int
-    bounding_boxes: List[BoundingBox] = []
+    bounding_boxes: List[BoundingBoxInDB] = []
 
     class Config:
         from_attributes = True
 
+class AuthenticateResponse(BaseModel):
+    user_id: int
+    api_key_id: int
 
-# Detection Response
-class DetectionResponse(BaseModel):
-    job_id: int
-    message: str
-
-
-# Model related schemas
-class ModelInfo(BaseModel):
-    name: str
-    description: str
-    is_available: bool
-    file_path: str
+class ApiKeyAuthenticateResponse(BaseModel):
+    user_id: int
+    api_key_id: int

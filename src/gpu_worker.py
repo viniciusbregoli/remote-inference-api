@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import base64
 import hashlib
 from redis.asyncio import Redis
@@ -18,21 +17,17 @@ from src.database import SessionLocal, ApiLog, Detection, BoundingBox
 from src.schemas import JobProcess, JobResult
 
 
-# Monkey patch ultralytics to use weights_only=False for compatibility
+# Gambiarra para carregar o modelo com weights_only=False
 def torch_safe_load(file):
     """Load a PyTorch model with weights_only=False."""
     return torch.load(file, map_location="cpu", weights_only=False), file
 
-
-# Apply the monkey patch
 tasks.torch_safe_load = torch_safe_load
 
-# Redis configuration
+# Redis and model configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_QUEUE = "detection_jobs"
-
-# Model configuration
 MODELS_DIR = Path("models")
 DEFAULT_MODEL = "yolov8n"
 
@@ -45,6 +40,7 @@ class GPUWorker:
 
     def load_model(self) -> YOLO:
         """Load the YOLO model"""
+
         model_path = MODELS_DIR / f"{DEFAULT_MODEL}.pt"
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found at {model_path}")
@@ -91,24 +87,7 @@ class GPUWorker:
 
         return detections, width, height, image_hash
 
-    def create_job_result(
-        self,
-        job_id: int,
-        success: bool,
-        processing_time: Optional[float] = None,
-        detections_count: Optional[int] = None,
-        error_message: Optional[str] = None,
-    ) -> JobResult:
-        """Create a job result object"""
-        return JobResult(
-            job_id=job_id,
-            success=success,
-            processing_time=processing_time,
-            detections_count=detections_count,
-            error_message=error_message,
-        )
-
-    def store_detection_results(
+    def store_detection_results_in_db(
         self,
         db: Session,
         job_id: int,
@@ -186,7 +165,7 @@ class GPUWorker:
 
                         # Store results in database
                         with SessionLocal() as db:
-                            self.store_detection_results(
+                            self.store_detection_results_in_db(
                                 db,
                                 job.job_id,
                                 self.model_name,
@@ -198,7 +177,7 @@ class GPUWorker:
                             )
 
                         # Create successful job result
-                        result = self.create_job_result(
+                        result = JobResult(
                             job_id=job.job_id,
                             success=True,
                             processing_time=processing_time,
@@ -217,7 +196,7 @@ class GPUWorker:
 
                     except Exception as processing_error:
                         # Create failed job result
-                        result = self.create_job_result(
+                        result = JobResult(
                             job_id=job.job_id,
                             success=False,
                             error_message=str(processing_error),
