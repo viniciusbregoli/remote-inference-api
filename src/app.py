@@ -82,7 +82,6 @@ async def detect_objects(
             log_data=ApiLogCreate(
                 user_id=user_id,
                 api_key_id=api_key_id,
-                endpoint="/detect",
                 request_size=request_size,
                 status_code=202,  # Accepted
                 model_name="queued",
@@ -204,7 +203,6 @@ async def websocket_detect(websocket: WebSocket):
                     log_data=ApiLogCreate(
                         user_id=user_id,
                         api_key_id=api_key_id,
-                        endpoint="/ws/detect",
                         request_size=len(data["image"]),
                         status_code=202,
                         model_name="queued",

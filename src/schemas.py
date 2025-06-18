@@ -69,7 +69,6 @@ class APIKey(APIKeyInDB):
 
 # Api Log Schemas
 class ApiLogBase(BaseModel):
-    endpoint: str
     request_size: int
     status_code: int
 
@@ -121,6 +120,7 @@ class DetectionBase(BaseModel):
     model_name: str
     image_width: int
     image_height: int
+    image_hash: str
     processing_time: float
 
 

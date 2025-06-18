@@ -58,7 +58,6 @@ class ApiLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("User.id"), nullable=False)
     api_key_id = Column(Integer, ForeignKey("ApiKey.id"), nullable=False)
-    endpoint = Column(String, nullable=False)
     model_name = Column(String)
     request_size = Column(Integer)  # in bytes
     status_code = Column(Integer)
@@ -76,6 +75,7 @@ class Detection(Base):
     model_name = Column(String, nullable=False)
     image_width = Column(Integer, nullable=False)
     image_height = Column(Integer, nullable=False)
+    image_hash = Column(String, nullable=False)
     processing_time = Column(Float, nullable=False)  # in seconds
 
     api_log = relationship("ApiLog", back_populates="detection")

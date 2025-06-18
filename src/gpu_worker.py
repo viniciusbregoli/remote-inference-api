@@ -2,6 +2,7 @@ import os
 import time
 import json
 import base64
+import hashlib
 from redis.asyncio import Redis
 from PIL import Image
 import io
@@ -17,7 +18,7 @@ from src.database import SessionLocal, ApiLog, Detection, BoundingBox
 from src.schemas import JobProcess, JobResult
 
 
-# Monkey patch ultralytics to use weights_only=False for PyTorch 2.6 compatibility
+# Monkey patch ultralytics to use weights_only=False for compatibility
 def torch_safe_load(file):
     """Load a PyTorch model with weights_only=False."""
     return torch.load(file, map_location="cpu", weights_only=False), file
@@ -53,7 +54,9 @@ class GPUWorker:
         """Initialize Redis connection"""
         self.redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-    def process_image(self, image_data: str) -> Tuple[list[Dict[str, Any]], int, int]:
+    def process_image(
+        self, image_data: str
+    ) -> Tuple[list[Dict[str, Any]], int, int, str]:
         """Process an image using the loaded model"""
         # Convert base64 to image
         img_bytes = base64.b64decode(image_data)
@@ -84,7 +87,69 @@ class GPUWorker:
                     }
                 )
 
-        return detections, width, height
+        image_hash = hashlib.sha256(image_data.encode()).hexdigest()
+
+        return detections, width, height, image_hash
+
+    def create_job_result(
+        self,
+        job_id: int,
+        success: bool,
+        processing_time: Optional[float] = None,
+        detections_count: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> JobResult:
+        """Create a job result object"""
+        return JobResult(
+            job_id=job_id,
+            success=success,
+            processing_time=processing_time,
+            detections_count=detections_count,
+            error_message=error_message,
+        )
+
+    def store_detection_results(
+        self,
+        db: Session,
+        job_id: int,
+        model_name: str,
+        width: int,
+        height: int,
+        image_hash: str,
+        processing_time: float,
+        detections: list[Dict[str, Any]],
+    ):
+        """Store detection results in the database"""
+        # Get the ApiLog entry
+        api_log_entry = db.query(ApiLog).filter(ApiLog.id == job_id).first()
+        if not api_log_entry:
+            print(f"ApiLog with id {job_id} not found.")
+            return
+
+        # Update ApiLog with model name and status code
+        db.query(ApiLog).filter(ApiLog.id == job_id).update(
+            {"model_name": model_name, "status_code": 200}
+        )
+
+        # Create Detection entry
+        detection_entry = Detection(
+            job_id=job_id,
+            model_name=model_name,
+            image_width=width,
+            image_height=height,
+            image_hash=image_hash,
+            processing_time=processing_time,
+        )
+        db.add(detection_entry)
+        db.commit()
+        db.refresh(detection_entry)
+
+        # Create BoundingBox entries
+        for det in detections:
+            bbox_entry = BoundingBox(detection_id=detection_entry.id, **det)
+            db.add(bbox_entry)
+
+        db.commit()
 
     async def run(self):
         """Main worker loop"""
@@ -114,7 +179,9 @@ class GPUWorker:
 
                     try:
                         # Process the image
-                        detections, width, height = self.process_image(job.image)
+                        detections, width, height, image_hash = self.process_image(
+                            job.image
+                        )
                         processing_time = time.time() - start_time
 
                         # Store results in database
@@ -125,6 +192,7 @@ class GPUWorker:
                                 self.model_name,
                                 width,
                                 height,
+                                image_hash,
                                 processing_time,
                                 detections,
                             )
@@ -166,64 +234,6 @@ class GPUWorker:
             except Exception as e:
                 print(f"Error in worker loop: {e}")
                 time.sleep(1)  # Prevent tight loop on errors
-
-    def create_job_result(
-        self,
-        job_id: int,
-        success: bool,
-        processing_time: Optional[float] = None,
-        detections_count: Optional[int] = None,
-        error_message: Optional[str] = None,
-    ) -> JobResult:
-        """Create a job result object"""
-        return JobResult(
-            job_id=job_id,
-            success=success,
-            processing_time=processing_time,
-            detections_count=detections_count,
-            error_message=error_message,
-        )
-
-    def store_detection_results(
-        self,
-        db: Session,
-        job_id: int,
-        model_name: str,
-        width: int,
-        height: int,
-        processing_time: float,
-        detections: list[Dict[str, Any]],
-    ):
-        """Store detection results in the database"""
-        # Get the ApiLog entry
-        api_log_entry = db.query(ApiLog).filter(ApiLog.id == job_id).first()
-        if not api_log_entry:
-            print(f"ApiLog with id {job_id} not found.")
-            return
-
-        # Update ApiLog with model name and status code
-        db.query(ApiLog).filter(ApiLog.id == job_id).update(
-            {"model_name": model_name, "status_code": 200}
-        )
-
-        # Create Detection entry
-        detection_entry = Detection(
-            job_id=job_id,
-            model_name=model_name,
-            image_width=width,
-            image_height=height,
-            processing_time=processing_time,
-        )
-        db.add(detection_entry)
-        db.commit()
-        db.refresh(detection_entry)
-
-        # Create BoundingBox entries
-        for det in detections:
-            bbox_entry = BoundingBox(detection_id=detection_entry.id, **det)
-            db.add(bbox_entry)
-
-        db.commit()
 
 
 if __name__ == "__main__":
